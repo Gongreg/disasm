@@ -43,8 +43,28 @@
 
     bytesUsed db 0
 
+    cwidth db ?
+    cdestination db ?
+    csize db ?
+    cmod db ?
+    creg db ?
+    crm db ?
+
+    sreg db ?
+    srm db ?
+
+    regArray db "AL", "AX", "CL", "CX", "DL", "DX", "BL", "BX", "AH", "SP", "CH", "BP", "DH", "SI", "BH", "DI"
+
+    regBuffer db 8 dup(?)
+    rmBuffer db 8 dup(?)
+
+    rmArray db "BX+SI", "BX+DI", "BP+SI","BP+DI","SI  ","DI  ","    ","BX  "
+
     intCom db "INT "
     intComL db 4
+
+    intCom3 db "INT", 09h, " 03h"
+    intCom3L db 8
 
     loopCom db "LOOP"
     loopComL db 4
@@ -60,7 +80,8 @@
     jmpCom db "JMP "
     jmpComL db 4
 
-
+    movCom db "MOV "
+    movComL db 4
 .code
 main:
     mov ax, @data
@@ -157,13 +178,13 @@ moveWordOffsetToBuffer proc
 
     mov byte ptr [di], 30h
     inc di
-    ;mov lower byte
-
+    ;mov low byte
     mov dx, [bx]
     call byteToAscii
     mov [di], dx
     add di, 2
 
+    ;mov high byte
     dec bx
     mov dx, [bx]
     call byteToAscii
@@ -180,9 +201,16 @@ endp moveWordOffsetToBuffer
 
 ;-------------------------------------------------------------------------------
 moveWholeAddressToBuffer proc
+    push bx
     call moveWordOffsetToBuffer
+    pop bx
+    mov byte ptr [di], ":"
+    inc di
+    mov [offsetInCommandParametersBuffer], di
 
+    ;use next 2 bytes
     add bx, 2
+    call moveWordOffsetToBuffer
 
     ret
 
@@ -242,6 +270,133 @@ afterCheck proc
     ret
 endp afterCheck
 
+;-------------------------------------------------------------------------------
+saveRegToBuffer proc
+
+    ;find correct index (creg * 4 + width * 2 = same as creg * 2 + width if not taking into account reg length)
+    mov cl, 4 ;one reg name length
+
+    mul cl
+
+    mov bl, al
+    mov al, cwidth
+
+    mov cl, 2
+    mul cl
+    add al, bl
+
+    lea si, regArray
+    add si, ax
+    call copyBetweenVariables
+
+    ret
+endp saveRegToBuffer
+;-------------------------------------------------------------------------------
+checkAddressByte proc
+    add bx, codeBytes
+    push bx
+    xor ax, ax
+
+    mov dl, [bx]
+
+    mov al, dl
+    and al, 11000000b
+    shr al, 6
+
+    mov [cmod], al
+
+    mov al, dl
+    and al, 00111000b
+    shr al, 3
+    mov [creg], al
+
+    mov al, dl
+    and al, 00000111b
+
+    mov [crm], al
+
+    mov al, creg
+    lea di, regBuffer
+    call saveRegToBuffer
+
+    pop bx
+
+    mov al, [cmod]
+
+    cmp al, 11b
+    jne notRegister
+
+    mov al, crm
+    lea di, rmBuffer
+    call saveRegToBuffer
+
+notRegister:
+
+    mov al, [cdestination]
+    cmp cdestination, 1
+    jne rmToReg
+
+regToRm:
+    mov di, offsetInCommandParametersBuffer
+    lea si, regBuffer
+    mov cl, 8
+    call copyBetweenVariables
+
+    mov [di], " ,"
+    add di, 2
+
+    lea si, rmBuffer
+    mov cl, 8
+    call copyBetweenVariables
+    jmp endCheckAddresByte
+
+rmToReg:
+
+    mov di, offsetInCommandParametersBuffer
+    lea si, rmBuffer
+    mov cl, 8
+    call copyBetweenVariables
+
+    mov [di], " ,"
+    add di, 2
+
+    lea si, regBuffer
+    mov cl, 8
+    call copyBetweenVariables
+
+endCheckAddresByte:
+    ret
+endp checkAddressByte
+
+;-------------------------------------------------------------------------------
+findDestination proc
+    mov al, dl
+    and al, 00000010b
+    shr al, 1
+    mov [cdestination], al
+
+    ret
+endp findDestination
+;-------------------------------------------------------------------------------
+findSize proc
+    mov al, dl
+    and al, 00000010b
+    shr al, 1
+    mov [csize], al
+
+    ret
+endp findSize
+;-------------------------------------------------------------------------------
+findWidth proc
+    mov al, dl
+    and al, 00000001b
+
+    mov [cwidth], al
+
+    ret
+endp findWidth
+;-------------------------------------------------------------------------------
+
 checkCommand proc
 
     call moveCodeOffsetToBuffer
@@ -253,7 +408,33 @@ checkCommand proc
     xor cx, cx
     mov bx, codeBytes
     mov dl, [bx]
+;----------------------------------
+;MOV COMMANDS
+;----------------------------------
+comMov:
+    mov al, dl
+    and al, 11111100b
+    cmp al, 10001000b
+    jne comJump
 
+    push dx
+    lea si, movCom
+    mov cl, movComL
+    call moveCommandNameToBuffer
+    pop dx
+    call findWidth
+    call findDestination
+
+    mov bx, 1
+    call checkAddressByte
+
+    mov cl, 2
+    call afterCheck
+    ret
+
+;----------------------------------
+;JUMP COMMANDS
+;----------------------------------
 comJump:
     cmp dl, 11101001b
     jne comJumpOutDir
@@ -267,6 +448,7 @@ comJump:
     mov cl, 3
     call afterCheck
     ret
+
 comJumpOutDir:
     cmp dl, 11101010b
     jne comJumpInRel
@@ -275,12 +457,29 @@ comJumpOutDir:
     mov cl, jmpComL
     call moveCommandNameToBuffer
 
+    mov bx, 1
     call moveWholeAddressToBuffer
     mov cl, 5
     call afterCheck
     ret
 
 comJumpInRel:
+    cmp dl, 11101011b
+    jne comJCXZ
+
+    lea si, jmpCom
+    mov cl, jmpComL
+    call moveCommandNameToBuffer
+
+    mov bx, 1
+    call moveOffsetToBuffer
+    mov cl, 2
+    call afterCheck
+    ret
+
+;----------------------------------
+;JMP CONDITIONAL COMMANDS
+;----------------------------------
 
 comJCXZ:
     cmp dl, 11100011b
@@ -308,9 +507,13 @@ comCondJumps:
     call afterCheck
     ret
 
+;----------------------------------
+;INT COMMANDS
+;----------------------------------
+
 comInt:
     cmp dl, 11001101b
-    jne comLoop
+    jne comInt3
 
     lea si, intCom
     mov cl, intComL
@@ -322,6 +525,20 @@ comInt:
     mov cl, 2
     call afterCheck
     ret
+
+comInt3:
+    cmp dl, 11001100b
+    jne comLoop
+
+    lea si, intCom3
+    mov cl, intCom3L
+    call moveCommandNameToBuffer
+    mov cl, 1
+    call afterCheck
+    ret
+;----------------------------------
+;LOOP COMMAND
+;----------------------------------
 
 comLoop:
     cmp dl, 11100010b
@@ -337,6 +554,10 @@ comLoop:
     mov cl, 2
     call afterCheck
     ret
+
+;----------------------------------
+;OTHERWISE UNIDENTIFIED
+;----------------------------------
 
 unidentified:
     lea si, uCom
@@ -600,7 +821,12 @@ wroteSuccesfully:
     mov cl, 20
     lea di, commandParametersBuffer
     call clearBuffer
-
+    mov cl, 8
+    lea di, regBuffer
+    call clearBuffer
+    mov cl, 8
+    lea di, rmBuffer
+    call clearBuffer
     ret
 endp writeToFile
 
