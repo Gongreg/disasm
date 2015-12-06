@@ -39,6 +39,7 @@
 
     maximumByteCount db 6 ;maximum amount of bytes needed for command
     codeBytes dw ? ;variable to easily reach next maximumByteCount bytes
+    byteToCountFrom dw ? ;variable to easily reach next maximumByteCount bytes
     codeFakeOffset dw 0100h
 
     bytesUsed db 0
@@ -265,6 +266,7 @@ endp moveOffsetToBuffer
 ;-------------------------------------------------------------------------------
 ;Checks all commands in 0111 **** range
 checkConditionalJumps proc
+    push bx
     xor ax, ax
     mov al, dl
     and al, 00001111b
@@ -276,8 +278,8 @@ checkConditionalJumps proc
 
     mov cl, 4
     call moveCommandNameToBuffer
-
-    mov bx, 1
+    pop bx
+    add bx, 1
     call moveOffsetToBuffer
 
     mov [bytesUsed], 2
@@ -307,8 +309,10 @@ saveRegToBuffer proc
 endp saveRegToBuffer
 ;-------------------------------------------------------------------------------
 checkAddressByte proc
+    ;which byte is address
+    mov bx, byteToCountFrom
     add bx, codeBytes
-    push bx
+
     xor ax, ax
 
     mov dl, [bx]
@@ -333,8 +337,6 @@ checkAddressByte proc
     lea di, regBuffer
     call saveRegToBuffer
 
-    pop bx
-
     mov al, cmod
 
     cmp al, 11b
@@ -343,8 +345,9 @@ checkAddressByte proc
     mov al, crm
     lea di, rmBuffer
     call saveRegToBuffer
-    jmp movingToBuffer
     mov [bytesUsed], 2
+    jmp movingToBuffer
+
 
 notRegister:
     xor ax, ax
@@ -357,13 +360,14 @@ notRegister:
 
     mov al, cprefix
     mov cl, 2
-    mul al
+    mul cl
+
     lea si, prefixArray
     add si, ax
     call copyBetweenVariables
 
     mov byte ptr [di], ":"
-
+    inc di
 noPrefix:
     mov bl, cmod
     mov al, crm
@@ -390,7 +394,8 @@ noPrefix:
     jne endRmBuffer
 
     ;if direct address add two bytes
-    mov bx, 2
+    mov bx, byteToCountFrom
+    add bx, 1
     call moveWordOffsetToBuffer
     mov [bytesUsed], 4
 
@@ -416,14 +421,17 @@ addOffset:
     cmp bl, 10b
     jne byteOffset
 wordOffset:
-    mov bx, 2
+    mov bx, byteToCountFrom
+    add bx, 1
     call moveWordOffsetToBuffer
-    jmp endRmBuffer
 
     mov [bytesUsed], 4
 
+    jmp endRmBuffer
+
 byteOffset:
-    mov bx, 2
+    mov bx, byteToCountFrom
+    add bx, 1
     call moveByteOffsetToBuffer
 
     mov [bytesUsed], 3
@@ -507,11 +515,12 @@ checkCommand proc
 
     mov [offsetInCommandParametersBuffer], di
 
-    ;mov [bytesUsed], 0
-
     xor cx, cx
     mov bx, codeBytes
     mov dl, [bx]
+
+    mov [byteToCountFrom], 1
+    mov bx, 0
 ;----------------------------------
 ;PREFIXES
 ;----------------------------------
@@ -527,9 +536,12 @@ prefix:
 
     mov [cprefix], al
     mov [cprefixUsed], 1
-    mov [bytesUsed], 0
-    call afterCheck
-    ret
+
+    mov bx, codeBytes
+    inc bx
+    mov dl, [bx]
+    mov bx, 1
+    mov [byteToCountFrom], 2
 ;----------------------------------
 ;MOV COMMANDS
 ;----------------------------------
@@ -547,7 +559,7 @@ comMov:
     call findWidth
     call findDestination
 
-    mov bx, 1
+    add bx, 1
     call checkAddressByte
 
     call afterCheck
@@ -564,7 +576,7 @@ comJump:
     mov cl, jmpComL
     call moveCommandNameToBuffer
 
-    mov bx, 1
+    add bx, 1
     call moveWordOffsetToParametersBuffer
     mov [bytesUsed], 3
     call afterCheck
@@ -578,7 +590,7 @@ comJumpOutDir:
     mov cl, jmpComL
     call moveCommandNameToBuffer
 
-    mov bx, 1
+    add bx, 1
     call moveWholeAddressToBuffer
     mov [bytesUsed], 5
     call afterCheck
@@ -592,7 +604,7 @@ comJumpInRel:
     mov cl, jmpComL
     call moveCommandNameToBuffer
 
-    mov bx, 1
+    add bx, 1
     call moveOffsetToBuffer
     mov [bytesUsed], 2
     call afterCheck
@@ -610,7 +622,7 @@ comJCXZ:
     mov cl, jcxzComL
     call moveCommandNameToBuffer
 
-    mov bx, 1
+    add bx, 1
     call moveOffsetToBuffer
 
     mov [bytesUsed], 2
@@ -640,7 +652,7 @@ comInt:
     mov cl, intComL
     call moveCommandNameToBuffer
 
-    mov bx, 1
+    add bx, 1
     call moveOffsetToBuffer
 
     mov [bytesUsed], 2
@@ -669,7 +681,7 @@ comLoop:
     mov cl, loopComL
     call moveCommandNameToBuffer
 
-    mov bx, 1
+    add bx, 1
     call moveOffsetToBuffer
 
     mov [bytesUsed], 2
