@@ -23,14 +23,14 @@
     codeOffsetBuffer db 4 dup(0), ":", 09h ; 0000: tab
     commandsBuffer db 18 dup (20h), 09h ; 00 00 00 00 00 00 tab
     commandTextBuffer db 15 dup (0), 09h
-    commandParametersBuffer db 20 dup (0), 10 ;buffer for command
+    commandParametersBuffer db 60 dup (0), 10 ;buffer for command
     offsetInCommandParametersBuffer dw 0
 
-    writeBufferSize db 62
+    writeBufferSize db 102
 
-    readBufferSize db 20
-    readBuffer db 20 dup(0)
-    amountToRead db 20 ;how much should be read
+    readBufferSize db 50
+    readBuffer db 50 dup(0)
+    amountToRead db 50 ;how much should be read
 
     actualBufferSize db ?
     bytesLeftInBuffer db 0 ;after moving bytes from buffer back to beggining, how many bytes are in buffer
@@ -50,15 +50,19 @@
     creg db ?
     crm db ?
 
+    cprefix db ?
+    cprefixUsed db 0
+
     sreg db ?
     srm db ?
 
     regArray db "AL", "AX", "CL", "CX", "DL", "DX", "BL", "BX", "AH", "SP", "CH", "BP", "DH", "SI", "BH", "DI"
-
-    regBuffer db 8 dup(?)
-    rmBuffer db 8 dup(?)
-
-    rmArray db "BX+SI", "BX+DI", "BP+SI","BP+DI","SI  ","DI  ","    ","BX  "
+    rmArray db "BX+SI", "BX+DI", "BP+SI", "BP+DI", "SI", 0, 0, 0, "DI", 0, 0, 0, 0, 0, 0, 0, 0, "BX", 0, 0, 0
+    prefixArray db "ES", "CS", "SS", "DS"
+    regBuffer db 29 dup(?)
+    regBufferSize db 29
+    rmBuffer db 29 dup(?)
+    rmBufferSize db 29
 
     intCom db "INT "
     intComL db 4
@@ -170,9 +174,24 @@ moveCommandNameToBuffer proc
     ret
 endp moveCommandNameToBuffer
 ;-------------------------------------------------------------------------------
-moveWordOffsetToBuffer proc
-    mov di, offsetInCommandParametersBuffer
+moveByteOffsetToBuffer proc
+    add bx, codeBytes
 
+    mov byte ptr [di], 30h
+    inc di
+    ;mov low byte
+    mov dx, [bx]
+    call byteToAscii
+    mov [di], dx
+    add di, 2
+
+    mov byte ptr[di], "h"
+    inc di
+
+    ret
+endp moveByteOffsetToBuffer
+;-------------------------------------------------------------------------------
+moveWordOffsetToBuffer proc
     inc bx
     add bx, codeBytes
 
@@ -194,15 +213,25 @@ moveWordOffsetToBuffer proc
     mov byte ptr[di], "h"
     inc di
 
-    mov offsetInCommandParametersBuffer, di
-
     ret
 endp moveWordOffsetToBuffer
+;-------------------------------------------------------------------------------
+
+moveWordOffsetToParametersBuffer proc
+    mov di, offsetInCommandParametersBuffer
+
+    call moveWordOffsetToBuffer
+
+    mov [offsetInCommandParametersBuffer], di
+
+    ret
+endp moveWordOffsetToParametersBuffer
 
 ;-------------------------------------------------------------------------------
 moveWholeAddressToBuffer proc
+
     push bx
-    call moveWordOffsetToBuffer
+    call moveWordOffsetToParametersBuffer
     pop bx
     mov byte ptr [di], ":"
     inc di
@@ -210,7 +239,7 @@ moveWholeAddressToBuffer proc
 
     ;use next 2 bytes
     add bx, 2
-    call moveWordOffsetToBuffer
+    call moveWordOffsetToParametersBuffer
 
     ret
 
@@ -251,24 +280,9 @@ checkConditionalJumps proc
     mov bx, 1
     call moveOffsetToBuffer
 
-    mov cl, 2
+    mov [bytesUsed], 2
     ret
 endp checkConditionalJumps
-;-------------------------------------------------------------------------------
-
-afterCheck proc
-    ;mve code offset, write to file and return how much bytes used
-    mov ax, codeFakeOffset
-    add al, cl
-    mov [codeFakeOffset], ax
-    mov [bytesUsed], cl
-
-    call moveCommandBytesToBuffer
-
-    call writeToFile
-
-    ret
-endp afterCheck
 
 ;-------------------------------------------------------------------------------
 saveRegToBuffer proc
@@ -321,7 +335,7 @@ checkAddressByte proc
 
     pop bx
 
-    mov al, [cmod]
+    mov al, cmod
 
     cmp al, 11b
     jne notRegister
@@ -329,8 +343,96 @@ checkAddressByte proc
     mov al, crm
     lea di, rmBuffer
     call saveRegToBuffer
+    jmp movingToBuffer
+    mov [bytesUsed], 2
 
 notRegister:
+    xor ax, ax
+
+    lea di, rmBuffer
+
+    mov al, cprefixUsed
+    cmp al, 1
+    jne noPrefix
+
+    mov al, cprefix
+    mov cl, 2
+    mul al
+    lea si, prefixArray
+    add si, ax
+    call copyBetweenVariables
+
+    mov byte ptr [di], ":"
+
+noPrefix:
+    mov bl, cmod
+    mov al, crm
+
+    push ax
+    mov byte ptr [di], "["
+    inc di
+
+    ;find correct index (crm * 4)
+    mov cl, 5 ;one reg name length
+
+    mul cl
+
+    lea si, rmArray
+    add si, ax
+    call copyBetweenVariables
+
+    pop ax
+
+    cmp bl, 0
+    jne modOverZero
+
+    cmp al, 110b
+    jne endRmBuffer
+
+    ;if direct address add two bytes
+    mov bx, 2
+    call moveWordOffsetToBuffer
+    mov [bytesUsed], 4
+
+    jmp endRmBuffer
+
+modOverZero:
+
+    cmp al, 110b
+    jne notBP
+
+    mov [di], "PB"
+    add di, 2
+
+notBP:
+;save amount of bytes used
+    mov bl, cmod
+
+addOffset:
+
+    mov byte ptr [di], "+"
+    inc di
+
+    cmp bl, 10b
+    jne byteOffset
+wordOffset:
+    mov bx, 2
+    call moveWordOffsetToBuffer
+    jmp endRmBuffer
+
+    mov [bytesUsed], 4
+
+byteOffset:
+    mov bx, 2
+    call moveByteOffsetToBuffer
+
+    mov [bytesUsed], 3
+
+endRmBuffer:
+    mov byte ptr [di], "]"
+    inc di
+
+movingToBuffer:
 
     mov al, [cdestination]
     cmp cdestination, 1
@@ -339,14 +441,14 @@ notRegister:
 regToRm:
     mov di, offsetInCommandParametersBuffer
     lea si, regBuffer
-    mov cl, 8
+    mov cl, regBufferSize
     call copyBetweenVariables
 
     mov [di], " ,"
     add di, 2
 
     lea si, rmBuffer
-    mov cl, 8
+    mov cl, rmBufferSize
     call copyBetweenVariables
     jmp endCheckAddresByte
 
@@ -354,14 +456,14 @@ rmToReg:
 
     mov di, offsetInCommandParametersBuffer
     lea si, rmBuffer
-    mov cl, 8
+    mov cl, rmBufferSize
     call copyBetweenVariables
 
     mov [di], " ,"
     add di, 2
 
     lea si, regBuffer
-    mov cl, 8
+    mov cl, regBufferSize
     call copyBetweenVariables
 
 endCheckAddresByte:
@@ -405,9 +507,29 @@ checkCommand proc
 
     mov [offsetInCommandParametersBuffer], di
 
+    ;mov [bytesUsed], 0
+
     xor cx, cx
     mov bx, codeBytes
     mov dl, [bx]
+;----------------------------------
+;PREFIXES
+;----------------------------------
+prefix:
+    mov al, dl
+    and al, 11100111b
+    cmp al, 00100110b
+    jne comMov
+
+    mov al, dl
+    and al, 00011000b
+    shr al, 3
+
+    mov [cprefix], al
+    mov [cprefixUsed], 1
+    mov [bytesUsed], 0
+    call afterCheck
+    ret
 ;----------------------------------
 ;MOV COMMANDS
 ;----------------------------------
@@ -428,7 +550,6 @@ comMov:
     mov bx, 1
     call checkAddressByte
 
-    mov cl, 2
     call afterCheck
     ret
 
@@ -444,8 +565,8 @@ comJump:
     call moveCommandNameToBuffer
 
     mov bx, 1
-    call moveWordOffsetToBuffer
-    mov cl, 3
+    call moveWordOffsetToParametersBuffer
+    mov [bytesUsed], 3
     call afterCheck
     ret
 
@@ -459,7 +580,7 @@ comJumpOutDir:
 
     mov bx, 1
     call moveWholeAddressToBuffer
-    mov cl, 5
+    mov [bytesUsed], 5
     call afterCheck
     ret
 
@@ -473,7 +594,7 @@ comJumpInRel:
 
     mov bx, 1
     call moveOffsetToBuffer
-    mov cl, 2
+    mov [bytesUsed], 2
     call afterCheck
     ret
 
@@ -492,7 +613,7 @@ comJCXZ:
     mov bx, 1
     call moveOffsetToBuffer
 
-    mov cl, 2
+    mov [bytesUsed], 2
     call afterCheck
     ret
 
@@ -522,7 +643,7 @@ comInt:
     mov bx, 1
     call moveOffsetToBuffer
 
-    mov cl, 2
+    mov [bytesUsed], 2
     call afterCheck
     ret
 
@@ -533,7 +654,7 @@ comInt3:
     lea si, intCom3
     mov cl, intCom3L
     call moveCommandNameToBuffer
-    mov cl, 1
+    mov [bytesUsed], 1
     call afterCheck
     ret
 ;----------------------------------
@@ -551,7 +672,7 @@ comLoop:
     mov bx, 1
     call moveOffsetToBuffer
 
-    mov cl, 2
+    mov [bytesUsed], 2
     call afterCheck
     ret
 
@@ -563,11 +684,33 @@ unidentified:
     lea si, uCom
     mov cl, uComL
     call moveCommandNameToBuffer
-    mov cl, 1
+    mov [bytesUsed], 1
     call afterCheck
     ret
 
 endp checkCommand
+
+;-------------------------------------------------------------------------------
+
+afterCheck proc
+    mov cl, bytesUsed
+    mov al, cprefixUsed
+    add cl, al
+
+    mov [bytesUsed], cl
+
+    ;mov code offset, write to file and return how much bytes used
+    mov ax, codeFakeOffset
+
+    add al, cl
+    mov [codeFakeOffset], ax
+
+    call moveCommandBytesToBuffer
+
+    call writeToFile
+
+    ret
+endp afterCheck
 
 ;-------------------------------------------------------------------------------
 
@@ -810,23 +953,30 @@ wroteSuccesfully:
     mov cl, 4
     lea di, codeOffsetBuffer
     call clearBuffer
+
     mov al, 20h
     mov cl, 18
     lea di, commandsBuffer
     call clearBuffer
+
     mov al, 0
     mov cl, 15
     lea di, commandTextBuffer
     call clearBuffer
-    mov cl, 20
+
+    mov cl, 60
     lea di, commandParametersBuffer
     call clearBuffer
-    mov cl, 8
+
+    mov cl, regBufferSize
     lea di, regBuffer
     call clearBuffer
-    mov cl, 8
+
+    mov cl, rmBufferSize
     lea di, rmBuffer
     call clearBuffer
+
+    mov [cprefixUsed], 0
     ret
 endp writeToFile
 
