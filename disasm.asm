@@ -89,6 +89,13 @@
 
     movCom db "MOV "
     movComL db 4
+
+    pushCom db "PUSH"
+    pushComL db 4
+
+    popCom db "POP "
+    popComL db 4
+
 .code
 main:
     mov ax, @data
@@ -274,7 +281,7 @@ comMovRegRmOperand:
     mov al, dl
     and al, 11111110b
     cmp al, 11000110b
-    jne comJump
+    jne comPushPopSeg
 
     push dx
     lea si, movCom
@@ -306,6 +313,144 @@ comMovRegRmOperand:
 
     call afterCheck
     ret
+
+;----------------------------------
+;PUSH/POP COMMANDS
+;----------------------------------
+
+comPushPopSeg:
+    mov al, dl
+    and al, 11100110b
+    cmp al, 00000110b
+    jne comPushPopReg
+
+    mov al, dl
+    and al, 00000001b
+    cmp al, 00000001b
+
+    jne PushSeg
+
+    push dx
+    lea si, popCom
+    mov cl, popComL
+    call moveCommandNameToBuffer
+    pop dx
+    jmp finishPushPop
+
+pushSeg:
+    push dx
+    lea si, pushCom
+    mov cl, pushComL
+    call moveCommandNameToBuffer
+    pop dx
+
+
+finishPushPop:
+    mov al, dl
+    and al, 00011000b
+    shr al, 3
+
+    mov cl, 2
+    mul cl
+
+    lea si, segmentArray
+    add si, ax
+    lea di, commandParametersBuffer
+    call copyBetweenVariables
+
+    mov [bytesUsed], 1
+
+    call afterCheck
+    ret
+
+comPushPopReg:
+    mov al, dl
+    and al, 11110000b
+    cmp al, 01010000b
+    jne comPushRm
+
+    mov al, dl
+    and al, 00001000b
+    cmp al, 00001000b
+
+    jne pushReg
+
+    push dx
+    lea si, popCom
+    mov cl, popComL
+    call moveCommandNameToBuffer
+    pop dx
+    jmp finishPushPopReg
+
+pushReg:
+    push dx
+    lea si, pushCom
+    mov cl, pushComL
+    call moveCommandNameToBuffer
+    pop dx
+
+finishPushPopReg:
+    mov al, dl
+    and al, 00000111b
+    mov [creg], al
+
+    mov [cwidth], 1
+
+    mov al, creg
+    lea di, commandParametersBuffer
+    call saveRegToBuffer
+
+    mov [bytesUsed], 1
+
+    call afterCheck
+    ret
+
+comPushRm:
+    cmp dl, 11111111b
+    jne comPopRm
+
+    call saveAddressValues
+
+    mov al, creg
+    cmp al, 110b
+    jne comPopRm
+
+    push dx
+    lea si, pushCom
+    mov cl, pushComL
+    call moveCommandNameToBuffer
+    pop dx
+
+    mov [cWidth], 1
+
+    call getRmToBuffer
+
+    call moveRmToParametersBuffer
+
+    call afterCheck
+    ret
+
+comPopRm:
+    cmp dl, 10001111b
+    jne comJump
+
+    call saveAddressValues
+
+    push dx
+    lea si, popCom
+    mov cl, popComL
+    call moveCommandNameToBuffer
+    pop dx
+
+    mov [cWidth], 1
+
+    call getRmToBuffer
+
+    call moveRmToParametersBuffer
+
+    call afterCheck
+    ret
+
 ;----------------------------------
 ;JUMP COMMANDS
 ;----------------------------------
