@@ -3,6 +3,13 @@ bseg segment
     org 100h
     assume ds:BSeg, cs:BSeg, ss:BSeg
 main:
+
+    ;mul/DIV
+    mul ax
+    mul word ptr [di + 1234h]
+    div ax
+    div byte ptr [di + 1234h]
+
     ;push/pop
     push es:[bx + si + 1234h]
     pop es:[bx + si + 1234h]

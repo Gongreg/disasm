@@ -96,6 +96,12 @@
     popCom db "POP "
     popComL db 4
 
+    mulCom db "MUL "
+    mulComL db 4
+
+    divCom db "DIV "
+    divComL db 4
+
 .code
 main:
     mov ax, @data
@@ -409,7 +415,9 @@ comPushRm:
     cmp dl, 11111111b
     jne comPopRm
 
+    push dx
     call saveAddressValues
+    pop dx
 
     mov al, creg
     cmp al, 110b
@@ -432,7 +440,7 @@ comPushRm:
 
 comPopRm:
     cmp dl, 10001111b
-    jne comJump
+    jne comMulDiv
 
     call saveAddressValues
 
@@ -443,6 +451,50 @@ comPopRm:
     pop dx
 
     mov [cWidth], 1
+
+    call getRmToBuffer
+
+    call moveRmToParametersBuffer
+
+    call afterCheck
+    ret
+
+;----------------------------------
+;MUL/DIV COMMANDS
+;----------------------------------
+comMulDiv:
+    mov al, dl
+    and al, 11111110b
+    cmp al, 11110110b
+    jne comJump
+
+    call saveAddressValues
+
+    mov al, creg
+    cmp al, 100b
+    jne comDIV
+
+    push dx
+    lea si, mulCom
+    mov cl, mulComL
+    call moveCommandNameToBuffer
+    pop dx
+
+
+    jmp finishMulDiv
+comDiv:
+
+    cmp al, 110b
+    jne comJump
+
+    push dx
+    lea si, divCom
+    mov cl, divComL
+    call moveCommandNameToBuffer
+    pop dx
+
+finishMulDiv:
+    call findWidth
 
     call getRmToBuffer
 
@@ -873,7 +925,7 @@ getRmToBuffer proc
     lea di, rmBuffer
     call saveRegToBuffer
     mov [bytesUsed], 2
-    jmp movingToBuffer
+    ret
 
 notRegister:
     xor ax, ax
