@@ -102,6 +102,11 @@
     divCom db "DIV "
     divComL db 4
 
+    retCom db "RET "
+    retComL db 4
+
+    retfCom db "RETF"
+    retfComL db 4
 .code
 main:
     mov ax, @data
@@ -234,6 +239,10 @@ comMovAccumRm:
 
     call findWidth
     call findDestination
+
+    mov al, cdestination
+    xor al, 1
+    mov [cdestination], al
 
     call moveAccumToRegBuffer
     call addressToRmBuffer
@@ -466,7 +475,7 @@ comMulDiv:
     mov al, dl
     and al, 11111110b
     cmp al, 11110110b
-    jne comJump
+    jne comRet
 
     call saveAddressValues
 
@@ -485,7 +494,7 @@ comMulDiv:
 comDiv:
 
     cmp al, 110b
-    jne comJump
+    jne comRet
 
     push dx
     lea si, divCom
@@ -502,6 +511,76 @@ finishMulDiv:
 
     call afterCheck
     ret
+
+;----------------------------------
+;RET/RETF
+;----------------------------------
+
+comRet:
+    cmp dl, 11000011b
+    jne comFret
+
+    push dx
+    lea si, retCom
+    mov cl, retComL
+    call moveCommandNameToBuffer
+    pop dx
+
+    mov [bytesUsed], 1
+    call afterCheck
+    ret
+comFret:
+    cmp dl, 11001011b
+    jne comRetFretOperand
+
+    push dx
+    lea si, retfCom
+    mov cl, retfComL
+    call moveCommandNameToBuffer
+    pop dx
+
+    mov [bytesUsed], 1
+    call afterCheck
+    ret
+
+comRetFretOperand:
+    cmp dl, 11000010b
+    jne fretOperand
+
+    push dx
+    lea si, retCom
+    mov cl, retComL
+    call moveCommandNameToBuffer
+    pop dx
+    jmp finishRetFretOperand
+
+fretOperand:
+    cmp dl, 11001010b
+    jne cmdCall
+
+    push dx
+    lea si, retfCom
+    mov cl, retfComL
+    call moveCommandNameToBuffer
+    pop dx
+
+finishRetFretOperand:
+
+    lea di, rmBuffer
+
+    mov [cWidth], 1
+
+    call moveOperandToBuffer
+
+    call moveRmToParametersBuffer
+
+    mov [bytesUsed], 3
+
+    call afterCheck
+
+    ret
+
+cmdCall:
 
 ;----------------------------------
 ;JUMP COMMANDS
@@ -889,7 +968,7 @@ endp getSegRegToBuffer
 ;-------------------------------------------------------------------------------
 
 addPrefix proc
-
+    xor ax, ax
     mov al, cprefixUsed
     cmp al, 1
     jne noPrefix

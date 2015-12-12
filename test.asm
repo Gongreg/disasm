@@ -4,6 +4,12 @@ bseg segment
     assume ds:BSeg, cs:BSeg, ss:BSeg
 main:
 
+    ;ret/RETF
+    ret
+    retf
+    ret 3h
+    retf 12h
+
     ;mul/DIV
     mul ax
     mul word ptr [di + 1234h]
@@ -47,6 +53,9 @@ main:
     mov cl, es:[abc]
     mov cs:[1234h], ax
     mov ds:[1234h], al
+    mov ax, cs:[1234h]
+    mov al, ds:[1234h]
+
     mov byte ptr [bx+si+1234h], 66h
     mov [bx+si+1234h], 5566h
     mov cl, 12h
