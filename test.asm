@@ -4,6 +4,8 @@ bseg segment
     assume ds:BSeg, cs:BSeg, ss:BSeg
 main:
 
+    ;calls
+
     ;ret/RETF
     ret
     retf
@@ -37,7 +39,10 @@ main:
 
 
     jcxz a
-    ;jmps
+    ;jmps / calls
+    call proce
+    call [bx+si]
+    call 1234h:[bp + si + 1222h]
     jmp a
     jmp [bx+si]
     jmp [bx+2]
@@ -67,5 +72,8 @@ main:
     int 0FFh
     ;unidentified
     abc db 12h
+
+    proce proc
+    endp proce
 bseg ends
 end main

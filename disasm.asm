@@ -107,6 +107,24 @@
 
     retfCom db "RETF"
     retfComL db 4
+
+    callCom db "CALL"
+    callComL db 4
+
+    addCom db "ADD "
+    addComL db 4
+
+    incCom db "INC "
+    incComL db 4
+
+    subCom db "SUB "
+    subComL db 4
+
+    decCom db "DEC "
+    decComL db 4
+
+    cmpCom db "CMP "
+    cmpComL db 4
 .code
 main:
     mov ax, @data
@@ -583,35 +601,59 @@ finishRetFretOperand:
 cmdCall:
 
 ;----------------------------------
-;JUMP COMMANDS
+;JUMP/CALL COMMANDS
 ;----------------------------------
 comJump:
     cmp dl, 11101001b
-    jne comJumpOutDir
+    jne comCall
 
     lea si, jmpCom
     mov cl, jmpComL
     call moveCommandNameToBuffer
 
+    jmp finishJumpCall
+comCall:
+    cmp dl, 11101000b
+    jne comJumpCallOutDir
+
+    lea si, callCom
+    mov cl, callComL
+    call moveCommandNameToBuffer
+
+finishJumpCall:
     add bx, 1
     call moveWordOffsetToParametersBuffer
     mov [bytesUsed], 3
     call afterCheck
     ret
 
-comJumpOutDir:
+;----------------------------------
+
+comJumpCallOutDir:
     cmp dl, 11101010b
-    jne comJumpInRel
+    jne comCallOutDir
 
     lea si, jmpCom
     mov cl, jmpComL
     call moveCommandNameToBuffer
 
+    jmp finishJumpCallOutDir
+comCallOutDir:
+    cmp dl, 10011010b
+    jne comJumpInRel
+
+    lea si, callCom
+    mov cl, callComL
+    call moveCommandNameToBuffer
+
+finishJumpCallOutDir:
     add bx, 1
     call moveWholeAddressToBuffer
     mov [bytesUsed], 5
     call afterCheck
     ret
+
+;----------------------------------
 
 comJumpInRel:
     cmp dl, 11101011b
@@ -627,6 +669,8 @@ comJumpInRel:
     call afterCheck
     ret
 
+;----------------------------------
+
 comJumpInDir:
     cmp dl, 11111111b
     jne comJCXZ
@@ -635,7 +679,7 @@ comJumpInDir:
 
     mov al, creg
     cmp al, 100b
-    jl comJCXZ
+    jl comCallInDir
     cmp al, 101b
     jg comJCXZ
 
@@ -645,6 +689,19 @@ comJumpInDir:
     call moveCommandNameToBuffer
     pop dx
 
+    jmp finishJumpCallInDir
+
+comCallInDir:
+    cmp al, 010b
+    jl comJCXZ
+
+    push dx
+    lea si, callCom
+    mov cl, callComL
+    call moveCommandNameToBuffer
+    pop dx
+
+finishJumpCallInDir:
     mov [cWidth], 1
 
     call getRmToBuffer
@@ -1033,6 +1090,8 @@ notRegister:
 
     cmp bl, 0
     jne modOverZero
+
+    mov [bytesUsed], 2
 
     cmp al, 110b
     jne endRmBuffer
