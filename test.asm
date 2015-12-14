@@ -4,7 +4,15 @@ bseg segment
     assume ds:BSeg, cs:BSeg, ss:BSeg
 main:
 
-    ;calls
+    ;inc/dec
+    inc ax
+    dec bx
+
+    inc byte ptr [bx + si]
+    inc word ptr [bx + si]
+
+    dec byte ptr [bx + si]
+    dec word ptr [bx + si]
 
     ;ret/RETF
     ret

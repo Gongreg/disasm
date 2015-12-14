@@ -21,12 +21,12 @@
     writeHandler dw ?
 
     codeOffsetBuffer db 4 dup(0), ":", 09h ; 0000: tab
-    commandsBuffer db 18 dup (20h), 09h ; 00 00 00 00 00 00 tab
+    commandsBuffer db 21 dup (20h), 09h ; 00 00 00 00 00 00 tab
     commandTextBuffer db 15 dup (0), 09h
     commandParametersBuffer db 60 dup (0), 10 ;buffer for command
     offsetInCommandParametersBuffer dw 0
 
-    writeBufferSize db 102
+    writeBufferSize db 105
 
     readBufferSize db 50
     readBuffer db 50 dup(0)
@@ -37,7 +37,7 @@
     bufferLocation db 0 ;offset used to find out at which byte we are currently checking
     fileEnd db 0 ;have we reached file end
 
-    maximumByteCount db 6 ;maximum amount of bytes needed for command
+    maximumByteCount db 7 ;maximum amount of bytes needed for command
     codeBytes dw ? ;variable to easily reach next maximumByteCount bytes
     byteToCountFrom dw ? ;variable to easily reach next maximumByteCount bytes
     codeFakeOffset dw 0100h
@@ -672,9 +672,13 @@ comJumpInRel:
 ;----------------------------------
 
 comJumpInDir:
-    cmp dl, 11111111b
+    mov al, dl
+    and al, 11111110b
+
+    cmp al, 11111110b
     jne comJCXZ
 
+    call findWidth
     call saveAddressValues
 
     mov al, creg
@@ -693,7 +697,7 @@ comJumpInDir:
 
 comCallInDir:
     cmp al, 010b
-    jl comJCXZ
+    jl comIncDecRM
 
     push dx
     lea si, callCom
@@ -701,8 +705,28 @@ comCallInDir:
     call moveCommandNameToBuffer
     pop dx
 
+    jmp finishJumpCallInDir
+
+comIncDecRM:
+    cmp al, 000b
+    jne comDECRM
+
+    push dx
+    lea si, incCom
+    mov cl, incComL
+    call moveCommandNameToBuffer
+    pop dx
+    jmp finishJumpCallInDir
+
+comDECRM:
+
+    push dx
+    lea si, decCom
+    mov cl, decComL
+    call moveCommandNameToBuffer
+    pop dx
+
 finishJumpCallInDir:
-    mov [cWidth], 1
 
     call getRmToBuffer
 
@@ -735,9 +759,63 @@ comCondJumps:
     and al, 11110000b
 
     cmp al, 01110000b
-    jne comInt
+    jne comAddSubComAccOp
 
     call checkConditionalJumps
+    call afterCheck
+    ret
+
+;----------------------------------
+;ADD/SUB/COM commands
+;----------------------------------
+
+comAddSubComAccOp:
+
+comAddSubComRegRm:
+
+comAddSubComRmOp:
+
+;----------------------------------
+;INC/DEC COMMANDS
+;----------------------------------
+comIncDec:
+    mov al, dl
+    and al, 11110000b
+    cmp al, 01000000b
+    jne comInt
+
+    mov al, dl
+    and al, 00001000b
+    shr al, 3
+    cmp al, 1
+
+    jne comInc
+    push dx
+    lea si, decCom
+    mov cl, decComL
+    call moveCommandNameToBuffer
+    pop dx
+    jmp finishIncdec
+
+comInc:
+
+    push dx
+    lea si, incCom
+    mov cl, incComL
+    call moveCommandNameToBuffer
+    pop dx
+finishIncdec:
+
+    mov al, dl
+    and al, 00000111b
+    mov [creg], al
+    mov [cwidth], 1
+
+    ;mov al, creg
+    lea di, commandParametersBuffer
+    call saveRegToBuffer
+
+    mov [bytesUsed], 1
     call afterCheck
     ret
 
@@ -913,6 +991,8 @@ afterCheck proc
     call moveCommandBytesToBuffer
 
     call writeToFile
+
+    mov [cprefixUsed], 0
 
     ret
 endp afterCheck
@@ -1145,6 +1225,8 @@ endRmBuffer:
 
     ret
 endp getRmToBuffer
+
+;-------------------------------------------------------------------------------
 
 moveParametersToParametersBuffer proc
 
@@ -1623,7 +1705,7 @@ wroteSuccesfully:
     call clearBuffer
 
     mov al, 20h
-    mov cl, 18
+    mov cl, 21
     lea di, commandsBuffer
     call clearBuffer
 
@@ -1644,7 +1726,6 @@ wroteSuccesfully:
     lea di, rmBuffer
     call clearBuffer
 
-    mov [cprefixUsed], 0
     ret
 endp writeToFile
 
